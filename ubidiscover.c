@@ -25,31 +25,28 @@ void spaces(int i)
     fputc(' ', stdout);
 }
 
-void dump_chunk(unsigned char *chunk, int len)
+/* void dump_chunk(unsigned char *chunk, int len, char *str) */
+/* { */
+/*   int i; */
+/*   for (i=0;i<len;i++) { */
+/*     if (i!=0) */
+/*       fputc(' ', stdout); */
+/*     sprintf ("%02X", chunk[i]); */
+/*   } */
+/* } */
+
+void sprint_hwaddr(unsigned char *b, char *str)
 {
   int i;
-  for (i=0;i<len;i++) {
-    if (i!=0)
-      fputc(' ', stdout);
-    printf ("%02X", chunk[i]);
-  }
+  for (i=0;i<6;i++)
+    sprintf (str + 3*i, "%02x:", b[i]);
+
+  str[17] = 0;
 }
 
-void print_hwaddr(unsigned char *b)
+void sprint_ipv4(unsigned char *b, char *str)
 {
-  int i;
-  for (i=0;i<6;i++) {
-    if (i!=0)
-      fputc(':', stdout);
-    printf ("%02x", b[i]);
-  }
-}
-
-void print_ipv4(unsigned char *b)
-{
-  char str[20];
   inet_ntop(AF_INET, b, str, 20);
-  fputs(str, stdout);
 }
 
 unsigned int get_number(unsigned char *b, int len)
@@ -66,7 +63,7 @@ unsigned int get_number(unsigned char *b, int len)
   return n;
 }
 
-int decode_chunk(int depth, unsigned char *chunk, unsigned int total_len)
+int report_chunk(int depth, unsigned char *chunk, unsigned int total_len)
 {
   unsigned int len;
   unsigned char type;
@@ -81,7 +78,7 @@ int decode_chunk(int depth, unsigned char *chunk, unsigned int total_len)
     spaces(depth);
     if (type == 0) {
       printf ("discover-message (len %d)\n", len);
-      decode_chunk(depth+2, chunk+pos, len);
+      report_chunk(depth+2, chunk+pos, len);
     } else if (type == 0x03) {
       str = strndup(chunk+pos, len);
       printf ("firmware '%s'\n", str);
@@ -105,28 +102,27 @@ int decode_chunk(int depth, unsigned char *chunk, unsigned int total_len)
     } else if (type == 0x0e) {
       printf ("wmode 0x%02x\n", chunk[pos]);
     } else if (type == 0x02) {
-      printf ("iface hwaddr ", str);
-      print_hwaddr(chunk+pos);
-      printf (" ipv4 ");
-      print_ipv4(chunk+pos+6);
-      fputc('\n', stdout);
+      char hwaddr[18];
+      char ipv4[16];
+      sprint_hwaddr(chunk+pos, hwaddr);
+      sprint_ipv4(chunk+pos+6, ipv4);
+      printf ("address: hwaddr %s ipv4 %s\n", hwaddr, ipv4);
     } else if (type == 0x01) {
       printf ("board.hwaddr ");
-      print_hwaddr(chunk+pos);
-      fputc('\n', stdout);
+      char hwaddr[18];
+      sprint_hwaddr(chunk+pos, hwaddr);
+      printf("hwaddr: %s\n", hwaddr);
     } else if (type == 0x0a) {
       unsigned int uptime;
       uptime = get_number(chunk+pos, 4);
       printf ("uptime %d\n",uptime);      
     } else {
-      printf("chunk (type 0x%x): ", type);
-      dump_chunk(chunk+pos, len);
+      printf("<unknown type: 0x%02x>\n", type);
     }
     pos += len;
   }
 }
-
-int decode_msg(unsigned char *msg, int total_len)
+int report_msg(unsigned char *msg, int total_len)
 {
   unsigned char magic;
 
@@ -136,7 +132,7 @@ int decode_msg(unsigned char *msg, int total_len)
   if (magic != 1) {
     printf ("oops: magic is not 1!\n");
   }
-  decode_chunk(0, msg, total_len-1);
+  report_chunk(0, msg, total_len-1);
 }
 
 struct {
@@ -214,5 +210,5 @@ main(int argc, char **argv)
 
   /* collect respose */
   inlen = recvfrom(ctx.sockfd, inmsg, 4096, 0, (struct sockaddr *)&sa, &sl);
-  decode_msg(inmsg, inlen);
+  report_msg(inmsg, inlen);
 }
