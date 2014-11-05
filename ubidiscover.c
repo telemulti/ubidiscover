@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/time.h>
 
 void barf(char *s)
 {
@@ -176,14 +177,34 @@ int lookup(char *name)
   return r;
 }
 
+
 unsigned char inmsg[4096];
 int inlen;
 
-main(int argc, char **argv)
+int collect_response()
 {
   struct sockaddr_in sa;
-  int r;
   socklen_t sl;
+  fd_set rfds;
+  struct timeval tv;
+  int retval;
+
+  FD_ZERO(&rfds);
+  FD_SET(ctx.sockfd, &rfds);
+
+  tv.tv_sec = 2;
+  tv.tv_usec = 0;
+
+  retval = select(ctx.sockfd+1, &rfds, 0, 0, &tv);
+  if (retval)
+    inlen = recvfrom(ctx.sockfd, inmsg, 4096, 0, (struct sockaddr *)&sa, &sl);
+
+  return retval;
+}
+
+main(int argc, char **argv)
+{
+  int r;
 
   if (argc < 2)
     barf("need a hostname");
@@ -208,7 +229,6 @@ main(int argc, char **argv)
   if (r<0)
     barf(strerror(errno));
 
-  /* collect respose */
-  inlen = recvfrom(ctx.sockfd, inmsg, 4096, 0, (struct sockaddr *)&sa, &sl);
-  report_msg(inmsg, inlen);
+  while (collect_response())
+	 report_msg(inmsg, inlen);
 }
