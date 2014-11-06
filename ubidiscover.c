@@ -13,6 +13,22 @@
 #include <errno.h>
 #include <sys/time.h>
 
+char *service = "10001";
+
+/* Message Types */
+enum {
+  DiscoverMessage = 0,
+  HwAddr = 1,
+  Address = 2,
+  FirmwareVersion = 3,
+  UpTime = 10,
+  HostName = 11,
+  Product = 12,
+  Essid = 13,
+  WirelessMode = 14,
+  SystemId = 15,
+};
+
 void barf(char *s)
 {
     printf("error: %s\n", s);
@@ -25,16 +41,6 @@ void spaces(int i)
   while (i--)
     fputc(' ', stdout);
 }
-
-/* void dump_chunk(unsigned char *chunk, int len, char *str) */
-/* { */
-/*   int i; */
-/*   for (i=0;i<len;i++) { */
-/*     if (i!=0) */
-/*       fputc(' ', stdout); */
-/*     sprintf ("%02X", chunk[i]); */
-/*   } */
-/* } */
 
 void sprint_hwaddr(unsigned char *b, char *str)
 {
@@ -77,43 +83,43 @@ int report_chunk(int depth, unsigned char *chunk, unsigned int total_len)
     pos += 3;
 
     spaces(depth);
-    if (type == 0) {
+    if (type == DiscoverMessage) {
       printf ("discover-message (len %d)\n", len);
       report_chunk(depth+2, chunk+pos, len);
-    } else if (type == 0x03) {
+    } else if (type == FirmwareVersion) {
       str = strndup(chunk+pos, len);
       printf ("firmware '%s'\n", str);
       free(str);
-    } else if (type == 0x0b) {
+    } else if (type == HostName) {
       str = strndup(chunk+pos, len);
       printf ("name '%s'\n", str);
       free(str);
-    } else if (type == 0x0c) {
+    } else if (type == Product) {
       str = strndup(chunk+pos, len);
       printf ("board.shortname '%s'\n", str);
       free(str);
-    } else if (type == 0x10) {
+    } else if (type == SystemId) {
       unsigned int sysid;
       sysid = get_number(chunk+pos, len);
       printf ("board.sysid 0x%x\n", sysid);
-    } else if (type == 0x0d) {
+    } else if (type == Essid) {
       str = strndup(chunk+pos, len);
       printf ("wireless.ssid '%s'\n", str);
       free(str);
-    } else if (type == 0x0e) {
+    } else if (type == WirelessMode) {
       printf ("wmode 0x%02x\n", chunk[pos]);
-    } else if (type == 0x02) {
+    } else if (type == Address) {
       char hwaddr[18];
       char ipv4[16];
       sprint_hwaddr(chunk+pos, hwaddr);
       sprint_ipv4(chunk+pos+6, ipv4);
       printf ("address: hwaddr %s ipv4 %s\n", hwaddr, ipv4);
-    } else if (type == 0x01) {
+    } else if (type == HwAddr) {
       printf ("board.hwaddr ");
       char hwaddr[18];
       sprint_hwaddr(chunk+pos, hwaddr);
       printf("hwaddr: %s\n", hwaddr);
-    } else if (type == 0x0a) {
+    } else if (type == UpTime) {
       unsigned int uptime;
       uptime = get_number(chunk+pos, 4);
       printf ("uptime %d\n",uptime);      
@@ -162,7 +168,7 @@ int lookup(char *name)
   hints.ai_addr = NULL;
   hints.ai_next = NULL;
 
-  r = getaddrinfo(name, "10001", &hints, &ai);
+  r = getaddrinfo(name, service, &hints, &ai);
 
   if (r<0)
     barf(strerror(errno));
@@ -210,10 +216,7 @@ main(int argc, char **argv)
     barf("need a hostname");
 
   if (argc >= 3) {
-    unsigned char t;
-    sscanf(argv[2], "%x", &t);
-    printf ("doing type 0x%x\n", t);
-    query[1]=t;
+    service = strdup(argv[2]);
   }
 
   ctx.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
