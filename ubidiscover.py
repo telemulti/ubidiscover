@@ -51,7 +51,7 @@ def parse_response(msg):
         elif tlv_type == WirelessMode:
             ret['wmode'] = struct.unpack("B", tlv_value)[0]
         elif tlv_type == SystemId:
-            ret['sysid'] = struct.unpack("H", tlv_value)[0]
+            ret['sysid'] = struct.unpack("!H", tlv_value)[0]
         else:
             print("unknown type %d. data: %s" % (tlv_type, binascii.b2a_hex(tlv_value)))
 
