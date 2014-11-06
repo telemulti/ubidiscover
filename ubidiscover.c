@@ -26,7 +26,7 @@ enum {
   Product = 12,
   Essid = 13,
   WirelessMode = 14,
-  SystemId = 15,
+  SystemId = 16,
 };
 
 void barf(char *s)
