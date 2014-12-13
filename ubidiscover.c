@@ -15,6 +15,30 @@
 
 char *service = "10001";
 
+struct address {
+  uint8_t hwaddr[6];
+  uint8_t ipv4[4];
+};
+
+struct chunk {
+  struct chunk *next;
+  unsigned char type;
+  union {
+    void *ptr;
+    unsigned int num;
+    struct chunk *down;
+    struct address *addr;
+  } u;
+};
+
+#define NUMBER(x)               (x->u.num)
+#define BUFFER(x)               (x->u.ptr)
+#define HWADDR(x)               (x->u.addr->hwaddr)
+#define IPV4ADDR(x)             (x->u.addr->ipv4)
+
+
+typedef struct chunk message;
+
 /* Message Types */
 enum {
   DiscoverMessage = 0,
@@ -70,76 +94,119 @@ unsigned int get_number(unsigned char *b, int len)
   return n;
 }
 
-int report_chunk(int depth, unsigned char *chunk, unsigned int total_len)
+int decode_chunk(struct chunk *ch, unsigned char type, unsigned char *data, unsigned int len)
 {
+  switch(type) {
+  case SystemId:		/* 16-bit integer */
+  case WirelessMode:		/*  8-bit integer */
+  case UpTime:		/* 32-bit integer */
+    NUMBER(ch) = get_number(data, len);
+    break;
+
+  case FirmwareVersion:	/* readable string */
+  case Product:
+  case HostName:
+  case Essid:
+    BUFFER(ch) = strndup((char *)data, len);
+    break;
+    
+  case HwAddr:
+    BUFFER(ch) = malloc(len);
+    memcpy(BUFFER(ch), data, len);
+    break;
+
+  case Address:
+    BUFFER(ch) = malloc(sizeof(struct address));
+    memcpy(HWADDR(ch), data, 6);
+    memcpy(IPV4ADDR(ch), data+6, 4);
+    break;
+
+  default:
+    break;
+  }
+
+  return 0;
+}
+
+message *decode_message(unsigned char *data, unsigned int total_len)
+{
+  int pos = 0;
   unsigned int len;
   unsigned char type;
-  char *str;
-  int pos = 0;
-  
-  while (pos < total_len) {
-    type = chunk[pos];
-    len = get_number(chunk + pos + 1, 2);
+  struct chunk *head;
+  struct chunk **cur;
+
+  if (data[0] != 1 || data[1] != DiscoverMessage) {
+    printf("oops, got id %d\n", data[1]);
+    return(0);
+  }
+
+  pos = 4;
+  head = malloc(sizeof(struct chunk));
+  head->type = 0;
+  head->u.down = 0;
+  cur = &head->u.down;
+
+  for (pos=4;pos<total_len;pos+=len) {
+    type = data[pos];
+    len = get_number(data + pos + 1, 2);
     pos += 3;
 
-    spaces(depth);
-    if (type == DiscoverMessage) {
-      printf ("discover-message (len %d)\n", len);
-      report_chunk(depth+2, chunk+pos, len);
-    } else if (type == FirmwareVersion) {
-      str = strndup(chunk+pos, len);
-      printf ("firmware '%s'\n", str);
-      free(str);
-    } else if (type == HostName) {
-      str = strndup(chunk+pos, len);
-      printf ("name '%s'\n", str);
-      free(str);
-    } else if (type == Product) {
-      str = strndup(chunk+pos, len);
-      printf ("board.shortname '%s'\n", str);
-      free(str);
-    } else if (type == SystemId) {
-      unsigned int sysid;
-      sysid = get_number(chunk+pos, len);
-      printf ("board.sysid 0x%x\n", sysid);
-    } else if (type == Essid) {
-      str = strndup(chunk+pos, len);
-      printf ("wireless.ssid '%s'\n", str);
-      free(str);
-    } else if (type == WirelessMode) {
-      printf ("wmode 0x%02x\n", chunk[pos]);
-    } else if (type == Address) {
-      char hwaddr[18];
-      char ipv4[16];
-      sprint_hwaddr(chunk+pos, hwaddr);
-      sprint_ipv4(chunk+pos+6, ipv4);
-      printf ("address: hwaddr %s ipv4 %s\n", hwaddr, ipv4);
-    } else if (type == HwAddr) {
-      printf ("board.hwaddr ");
-      char hwaddr[18];
-      sprint_hwaddr(chunk+pos, hwaddr);
-      printf("hwaddr: %s\n", hwaddr);
-    } else if (type == UpTime) {
-      unsigned int uptime;
-      uptime = get_number(chunk+pos, 4);
-      printf ("uptime %d\n",uptime);      
-    } else {
-      printf("<unknown type: 0x%02x>\n", type);
-    }
-    pos += len;
+    (*cur) = malloc(sizeof(struct chunk));
+    (*cur)->type = type;
+    decode_chunk(*cur, type, data+pos, len);
+
+    cur = &((*cur)->next);
   }
+
+  *cur = 0;
+  return head;
 }
-int report_msg(unsigned char *msg, int total_len)
+
+int report_chunk(struct chunk *ch)
 {
-  unsigned char magic;
+  unsigned char type = ch->type;
 
-  magic = msg[0];
-  msg++;
-
-  if (magic != 1) {
-    printf ("oops: magic is not 1!\n");
+  if (type == FirmwareVersion) {
+    printf ("firmware '%s'\n", (char *)BUFFER(ch));
+  } else if (type == HostName) {
+    printf ("name '%s'\n", (char *)BUFFER(ch));
+  } else if (type == Product) {
+    printf ("board.shortname '%s'\n", (char *)BUFFER(ch));
+  } else if (type == SystemId) {
+    printf ("board.sysid 0x%x\n", NUMBER(ch));
+  } else if (type == Essid) {
+    printf ("wireless.ssid '%s'\n", (char *)BUFFER(ch));
+  } else if (type == WirelessMode) {
+    printf ("wmode 0x%02x\n", NUMBER(ch));
+  } else if (type == Address) {
+    char hwaddr[18];
+    char ipv4[16];
+    sprint_hwaddr(HWADDR(ch), hwaddr);
+    sprint_ipv4(IPV4ADDR(ch), ipv4);
+    printf ("address { hwaddr %s ipv4 %s }\n", hwaddr, ipv4);
+  } else if (type == HwAddr) {
+    char hwaddr[18];
+    sprint_hwaddr(BUFFER(ch), hwaddr);
+    printf("board.hwaddr: %s\n", hwaddr);
+  } else if (type == UpTime) {
+    printf ("uptime %d\n", NUMBER(ch));
+  } else {
+    printf("<unknown type: 0x%02x>\n", type);
   }
-  report_chunk(0, msg, total_len-1);
+  return 0;
+}
+
+
+int report_message(message *m)
+{
+  struct chunk *ch;
+
+  for (ch=m->u.down;ch;ch=ch->next) {
+    report_chunk(ch);
+  }
+
+  return 0;
 }
 
 struct {
@@ -208,7 +275,7 @@ int collect_response()
   return retval;
 }
 
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
   int r;
 
@@ -232,6 +299,11 @@ main(int argc, char **argv)
   if (r<0)
     barf(strerror(errno));
 
-  while (collect_response())
-	 report_msg(inmsg, inlen);
+  while (collect_response()) {
+    message *m;
+    m = decode_message(inmsg, inlen);
+    report_message(m);
+  }
+
+  return 0;
 }

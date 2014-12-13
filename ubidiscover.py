@@ -24,12 +24,12 @@ def _parse_response(msg):
     cur_pos = 0
 
     ret = { 'addresses' : [] }
-
+        
     while cur_pos < msg_length:
         rest = msg_body[cur_pos:]
         tlv_type, tlv_length = struct.unpack("!BH", rest[0:3])
         tlv_value = rest[3:3+tlv_length]
-
+                
         if   tlv_type == HwAddr:
             ret['hwaddr'] = _parse_macaddr(tlv_value)
         elif (tlv_type == Address):
@@ -53,39 +53,58 @@ def _parse_response(msg):
             ret['sysid'] = struct.unpack("!H", tlv_value)[0]
         else:
             print("unknown type %d. data: %s" % (tlv_type, binascii.b2a_hex(tlv_value)))
-
+                
         cur_pos += tlv_length + 3
 
     return ret
 
-def discover(hostname, timeout=2):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.connect((sys.argv[1], 10001))
-    sock.send(struct.pack("BBBB", 1, 0, 0, 0))
+class UbiDiscover(object):
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    if timeout == 0:
-        data = sock.recv(4096)
-        return [ _parse_response(data) ]
+    def __del__(self):
+        self.sock.close()
 
-    responses = []
-    while True:
-        r,w,x = select.select([sock], [], [], timeout)
+    def discover(self, hostname, timeout=2):
+        self.sock.connect((hostname, 10001))
+        self.sock.send(struct.pack("BBBB", 1, 0, 0, 0))
+
+        r,w,x = select.select([self.sock], [], [], timeout)
+
         if not r:
-            break
-        data = sock.recv(4096)
-        responses.append(_parse_response(data))
+            return None
 
-    return responses
+        data = self.sock.recv(4096)
+        response = _parse_response(data)
+
+        return response
+
+
+    def discover_multi(self, hostlist, timeout=2):
+        responses = []
+        for host in hostlist:
+            response = self.discover(host, timeout)
+            if response:
+                responses.append(response)
+        return responses
+
 
 if __name__ == "__main__":
     import json
 
-    if len(sys.argv) < 2:
-        print("usage: %s <hostname>" % sys.argv[0])
+    d = UbiDiscover()
 
+    if len(sys.argv) < 2:
+        hosts = []
+        for line in sys.stdin:
+            hosts.append(line.strip())
+
+        resp = d.discover_multi(hosts, .2)
+        print(json.dumps(resp))
+        
     elif len(sys.argv) == 2:
-        resp = discover(sys.argv[1])
+        resp = d.discover(sys.argv[1])
         print(json.dumps(resp))
     else:
-        resp = discover(sys.argv[1], int(sys.argv[2]))
+        resp = d.discover(sys.argv[1], float(sys.argv[2]))
         print(json.dumps(resp))

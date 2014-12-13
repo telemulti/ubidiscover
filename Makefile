@@ -1,3 +1,5 @@
+CFLAGS=-Wall
+
 all: ubidiscover
 
 ubidiscover: ubidiscover.o
