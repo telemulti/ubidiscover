@@ -278,6 +278,7 @@ int collect_response()
 int main(int argc, char **argv)
 {
   int r;
+  int broadcast = 1;
 
   if (argc < 2)
     barf("need a hostname");
@@ -290,10 +291,12 @@ int main(int argc, char **argv)
   if (ctx.sockfd < 0)
     barf(strerror(errno));
 
-
   if (lookup(argv[1]) < 0)
     barf("bad lookup");
 
+  /* request broadcast permissions if possible */
+  setsockopt(ctx.sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+  
   /* trasmit query */
   r = sendto(ctx.sockfd, query, 4, 0, (struct sockaddr *)&ctx.saddr, sizeof(ctx.saddr));
   if (r<0)
@@ -303,6 +306,7 @@ int main(int argc, char **argv)
     message *m;
     m = decode_message(inmsg, inlen);
     report_message(m);
+    printf ("\n");
   }
 
   return 0;
